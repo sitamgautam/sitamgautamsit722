@@ -64,8 +64,7 @@ jobs:
           fi
 
       - name: Login to Azure Container Registry
-        run: |
-          az acr login -n ${{ secrets.ACR_NAME }}
+        run: az acr login -n ${{ secrets.ACR_NAME }}
 
       - name: Build Docker image
         run: |
@@ -97,6 +96,9 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
+      - name: List repo files for debug
+        run: ls -la
+
       - name: Configure Azure credentials
         uses: azure/login@v2
         with:
@@ -114,7 +116,7 @@ jobs:
       - name: Update image tags in Kubernetes manifests
         run: |
           mkdir -p temp-k8s
-          cp -r week10/k8s/* temp-k8s/
+          cp -r k8s/* temp-k8s/
           sed -i "s|week10_product_service:latest|week10_product_service:${{ github.sha }}|g" temp-k8s/product-service.yaml
           sed -i "s|week10_order_service:latest|week10_order_service:${{ github.sha }}|g" temp-k8s/order-service.yaml
           sed -i "s|week10_customer_service:latest|week10_customer_service:${{ github.sha }}|g" temp-k8s/customer-service.yaml
