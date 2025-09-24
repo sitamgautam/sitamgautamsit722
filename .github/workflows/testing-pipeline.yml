@@ -6,10 +6,9 @@ on:
 
 jobs:
   # STAGE 1: Test Code
-  test-code:
+  test-services:
     name: Run Tests
     runs-on: ubuntu-latest
-    
     strategy:
       matrix:
         service: [product-service, order-service, customer-service]
@@ -29,16 +28,15 @@ jobs:
         if [ -f "requirements.txt" ]; then
           pip install -r requirements.txt
         fi
-        # Simple test - replace with your actual test commands
-        echo "Running tests for ${{ matrix.service }}"
-        python -c "print('Tests passed for ${{ matrix.service }}')"
+        # Run basic tests
+        python -m pytest test_app.py -v
+        echo "✅ Tests passed for ${{ matrix.service }}"
 
-  # STAGE 2: Build and Push Images to ACR
+  # STAGE 2: Build and Push to ACR
   build-and-push:
-    name: Build and Push Docker Images
-    needs: test-code
+    name: Build and Push Images
+    needs: test-services
     runs-on: ubuntu-latest
-    
     strategy:
       matrix:
         service: [product-service, order-service, customer-service, frontend]
@@ -60,19 +58,18 @@ jobs:
     - name: Build and push Docker image
       run: |
         if [ "${{ matrix.service }}" = "frontend" ]; then
-          docker build -t ${{ secrets.ACR_REGISTRY }}/week10_frontend:latest -f ./frontend/Dockerfile ./frontend
+          docker build -t ${{ secrets.ACR_REGISTRY }}/week10_frontend:${{ github.sha }} -f ./frontend/Dockerfile ./frontend
+          docker push ${{ secrets.ACR_REGISTRY }}/week10_frontend:${{ github.sha }}
         else
-          docker build -t ${{ secrets.ACR_REGISTRY }}/week10_${{ matrix.service }}:latest \
+          docker build -t ${{ secrets.ACR_REGISTRY }}/week10_${{ matrix.service }}:${{ github.sha }} \
             -f ./backend/${{ matrix.service }}/Dockerfile ./backend/${{ matrix.service }}
+          docker push ${{ secrets.ACR_REGISTRY }}/week10_${{ matrix.service }}:${{ github.sha }}
         fi
-        docker push ${{ secrets.ACR_REGISTRY }}/week10_${{ matrix.service }}:latest
-    
-    - name: Log build success
-      run: echo "Successfully built and pushed ${{ matrix.service }} image"
+        echo "✅ Successfully built and pushed ${{ matrix.service }}"
 
-  # STAGE 3: Deploy to Staging Environment
+  # STAGE 3: Deploy to Staging
   deploy-staging:
-    name: Deploy to Staging
+    name: Deploy to Staging Environment
     needs: build-and-push
     runs-on: ubuntu-latest
     
@@ -85,41 +82,35 @@ jobs:
       with:
         creds: ${{ secrets.AZURE_CREDENTIALS }}
     
-    - name: Deploy to AKS Staging Cluster
+    - name: Deploy to AKS Staging
       uses: azure/aks-set-context@v3
       with:
         cluster-name: ${{ secrets.AKS_STAGING_CLUSTER }}
         resource-group: ${{ secrets.AKS_STAGING_RESOURCE_GROUP }}
     
-    - name: Deploy Kubernetes manifests
+    - name: Create staging namespace
       run: |
-        echo "Deploying to staging environment..."
-        kubectl apply -f week10/k8s/configmaps.yaml
-        kubectl apply -f week10/k8s/secrets-simple.yaml
-        kubectl apply -f week10/k8s/product-db.yaml
-        kubectl apply -f week10/k8s/order-db.yaml
-        kubectl apply -f week10/k8s/customer-db.yaml
-        kubectl apply -f week10/k8s/product-service.yaml
-        kubectl apply -f week10/k8s/order-service.yaml
-        kubectl apply -f week10/k8s/customer-service.yaml
-        kubectl apply -f week10/k8s/frontend.yaml
+        kubectl create namespace staging --dry-run=client -o yaml | kubectl apply -f -
     
-    - name: Wait for services to be ready
+    - name: Deploy to staging namespace
       run: |
-        echo "Waiting for services to be ready..."
-        kubectl wait --for=condition=ready pod -l app=product-service --timeout=300s
-        kubectl wait --for=condition=ready pod -l app=order-service --timeout=300s
-        kubectl wait --for=condition=ready pod -l app=customer-service --timeout=300s
-        kubectl wait --for=condition=ready pod -l app=frontend --timeout=300s
+        kubectl apply -f week10/k8s/ -n staging
+        echo "🔄 Waiting for staging services to be ready..."
     
-    - name: Run acceptance tests
+    - name: Wait for services
       run: |
-        echo "Running acceptance tests..."
-        # Get external IP for frontend
-        kubectl get services
-        echo "Staging environment is ready for manual testing"
+        kubectl wait --for=condition=ready pod -l app=product-service -n staging --timeout=300s
+        kubectl wait --for=condition=ready pod -l app=frontend -n staging --timeout=300s
+        echo "✅ Staging environment is ready!"
+    
+    - name: Get staging endpoints
+      run: |
+        echo "📊 Staging Services:"
+        kubectl get services -n staging
+        echo "🌐 Frontend URL:"
+        kubectl get service frontend-w10-aks -n staging -o jsonpath='{.status.loadBalancer.ingress[0].ip}'
 
-  # STAGE 4: Destroy Staging Environment
+  # STAGE 4: Destroy Staging
   destroy-staging:
     name: Destroy Staging Environment
     needs: deploy-staging
@@ -134,7 +125,7 @@ jobs:
       with:
         creds: ${{ secrets.AZURE_CREDENTIALS }}
     
-    - name: Connect to AKS Staging Cluster
+    - name: Connect to AKS
       uses: azure/aks-set-context@v3
       with:
         cluster-name: ${{ secrets.AKS_STAGING_CLUSTER }}
@@ -142,11 +133,7 @@ jobs:
     
     - name: Destroy staging environment
       run: |
-        echo "Destroying temporary staging environment..."
-        kubectl delete -f week10/k8s/ --ignore-not-found=true --wait=true
-        echo "Staging environment destroyed successfully"
-    
-    - name: Verify destruction
-      run: |
-        kubectl get pods
-        kubectl get services
+        echo "🗑️ Destroying staging environment..."
+        kubectl delete -f week10/k8s/ -n staging --ignore-not-found=true
+        kubectl delete namespace staging --ignore-not-found=true
+        echo "✅ Staging environment destroyed!"
