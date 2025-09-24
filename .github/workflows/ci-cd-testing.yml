@@ -161,4 +161,4 @@ jobs:
           echo "🗑️ Destroying staging environment..."
           kubectl delete -f temp-k8s/ -n staging --ignore-not-found=true
           kubectl delete namespace staging --ignore-not-found=true
-          echo "✅ Staging environment destroyed!"
+          echo "Staging environment destroyed!"
