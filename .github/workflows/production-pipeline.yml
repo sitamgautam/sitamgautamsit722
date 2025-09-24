@@ -27,25 +27,24 @@ jobs:
           resource-group: ${{ secrets.AKS_PRODUCTION_RESOURCE_GROUP }}
 
       - name: List K8s folder
-        run: ls -la k8s/
+        run: ls -la week10/k8s/  # ← FIXED PATH
 
       - name: Deploy Production Application
         run: |
           echo "🚀 Deploying to production environment..."
-          kubectl apply -f k8s/configmaps.yaml
-          kubectl apply -f k8s/secrets-simple.yaml
-          kubectl apply -f k8s/product-db.yaml
-          kubectl apply -f k8s/order-db.yaml
-          kubectl apply -f k8s/customer-db.yaml
-          kubectl apply -f k8s/product-service.yaml
-          kubectl apply -f k8s/order-service.yaml
-          kubectl apply -f k8s/customer-service.yaml
-          kubectl apply -f k8s/frontend.yaml
+          kubectl apply -f week10/k8s/configmaps.yaml  # ← FIXED PATH
+          kubectl apply -f week10/k8s/product-db.yaml
+          kubectl apply -f week10/k8s/order-db.yaml
+          kubectl apply -f week10/k8s/customer-db.yaml
+          kubectl apply -f week10/k8s/product-service.yaml
+          kubectl apply -f week10/k8s/order-service.yaml
+          kubectl apply -f week10/k8s/customer-service.yaml
+          kubectl apply -f week10/k8s/frontend.yaml
           sleep 10
 
       - name: Wait for production services
         run: |
-          echo "⏳ Waiting for production services to be ready..."
+          echo "Waiting for production services to be ready..."
           kubectl wait --for=condition=ready pod -l app=product-service --timeout=600s
           kubectl wait --for=condition=ready pod -l app=order-service --timeout=600s
           kubectl wait --for=condition=ready pod -l app=customer-service --timeout=600s
@@ -53,6 +52,11 @@ jobs:
 
       - name: Verify production deployment
         run: |
-          echo "✅ Production deployment completed successfully!"
+          echo " Production deployment completed successfully!"
+          echo " Production Services:"
           kubectl get services
+          echo "🖥️ Production Pods:"
           kubectl get pods
+          
+          # Get the external IP
+          kubectl get service frontend-w10-aks
