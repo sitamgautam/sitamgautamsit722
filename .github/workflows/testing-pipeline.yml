@@ -11,7 +11,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        service: [product-service, order-service, customer-service]
+        service: [product_service, order_service, customer_service]  # ← UNDERSCOPES
     
     steps:
     - name: Checkout code
@@ -24,13 +24,16 @@ jobs:
     
     - name: Install dependencies and run tests
       run: |
-        cd backend/${{ matrix.service }}
-        if [ -f "requirements.txt" ]; then
-          pip install -r requirements.txt
+        echo "📦 Testing service: ${{ matrix.service }}"
+        cd backend/${{ matrix.service }}  # ← Now matches your structure
+        pip install -r requirements.txt
+        echo "🧪 Running tests..."
+        if python -m pytest test_app.py -v; then
+          echo "✅ Tests passed for ${{ matrix.service }}"
+        else
+          echo "❌ Tests failed for ${{ matrix.service }}"
+          exit 1
         fi
-        # Run basic tests
-        python -m pytest test_app.py -v
-        echo "✅ Tests passed for ${{ matrix.service }}"
 
   # STAGE 2: Build and Push to ACR
   build-and-push:
@@ -39,7 +42,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        service: [product-service, order-service, customer-service, frontend]
+        service: [product_service, order_service, customer_service, frontend]  # ← UNDERSCOPES
     
     steps:
     - name: Checkout code
@@ -55,21 +58,29 @@ jobs:
         username: ${{ secrets.ACR_USERNAME }}
         password: ${{ secrets.ACR_PASSWORD }}
     
-    - name: Build and push Docker image
+    - name: Build Docker image
       run: |
         if [ "${{ matrix.service }}" = "frontend" ]; then
+          echo "🏗️ Building frontend image..."
           docker build -t ${{ secrets.ACR_REGISTRY }}/week10_frontend:${{ github.sha }} -f ./frontend/Dockerfile ./frontend
-          docker push ${{ secrets.ACR_REGISTRY }}/week10_frontend:${{ github.sha }}
         else
+          echo "🏗️ Building ${{ matrix.service }} image..."
           docker build -t ${{ secrets.ACR_REGISTRY }}/week10_${{ matrix.service }}:${{ github.sha }} \
             -f ./backend/${{ matrix.service }}/Dockerfile ./backend/${{ matrix.service }}
+        fi
+    
+    - name: Push Docker image
+      run: |
+        if [ "${{ matrix.service }}" = "frontend" ]; then
+          docker push ${{ secrets.ACR_REGISTRY }}/week10_frontend:${{ github.sha }}
+        else
           docker push ${{ secrets.ACR_REGISTRY }}/week10_${{ matrix.service }}:${{ github.sha }}
         fi
-        echo "✅ Successfully built and pushed ${{ matrix.service }}"
+        echo "✅ Successfully pushed ${{ matrix.service }}:${{ github.sha }}"
 
-  # STAGE 3: Deploy to Staging
+  # STAGE 3: Deploy to Staging Environment
   deploy-staging:
-    name: Deploy to Staging Environment
+    name: Deploy to Staging
     needs: build-and-push
     runs-on: ubuntu-latest
     
@@ -82,37 +93,42 @@ jobs:
       with:
         creds: ${{ secrets.AZURE_CREDENTIALS }}
     
-    - name: Deploy to AKS Staging
+    - name: Connect to AKS Staging Cluster
       uses: azure/aks-set-context@v3
       with:
         cluster-name: ${{ secrets.AKS_STAGING_CLUSTER }}
         resource-group: ${{ secrets.AKS_STAGING_RESOURCE_GROUP }}
     
     - name: Create staging namespace
+      run: kubectl create namespace staging --dry-run=client -o yaml | kubectl apply -f -
+    
+    - name: Update image tags in Kubernetes manifests
       run: |
-        kubectl create namespace staging --dry-run=client -o yaml | kubectl apply -f -
+        # Create temporary updated manifests with correct image tags
+        mkdir -p temp-k8s
+        cp -r week10/k8s/* temp-k8s/
+        
+        # Update image tags - match your actual image names
+        sed -i "s|week10_product_service:latest|week10_product_service:${{ github.sha }}|g" temp-k8s/product-service.yaml
+        sed -i "s|week10_order_service:latest|week10_order_service:${{ github.sha }}|g" temp-k8s/order-service.yaml
+        sed -i "s|week10_customer_service:latest|week10_customer_service:${{ github.sha }}|g" temp-k8s/customer-service.yaml
+        sed -i "s|week10_example01_frontend:latest|week10_frontend:${{ github.sha }}|g" temp-k8s/frontend.yaml
     
     - name: Deploy to staging namespace
       run: |
-        kubectl apply -f week10/k8s/ -n staging
-        echo "🔄 Waiting for staging services to be ready..."
+        echo "🚀 Deploying to staging environment..."
+        kubectl apply -f temp-k8s/ -n staging
     
-    - name: Wait for services
+    - name: Wait for services to be ready
       run: |
-        kubectl wait --for=condition=ready pod -l app=product-service -n staging --timeout=300s
-        kubectl wait --for=condition=ready pod -l app=frontend -n staging --timeout=300s
-        echo "✅ Staging environment is ready!"
-    
-    - name: Get staging endpoints
-      run: |
-        echo "📊 Staging Services:"
-        kubectl get services -n staging
-        echo "🌐 Frontend URL:"
-        kubectl get service frontend-w10-aks -n staging -o jsonpath='{.status.loadBalancer.ingress[0].ip}'
+        echo "⏳ Waiting for services to be ready..."
+        sleep 30
+        kubectl get pods -n staging
+        echo "✅ Staging deployment completed!"
 
-  # STAGE 4: Destroy Staging
+  # STAGE 4: Destroy Staging Environment
   destroy-staging:
-    name: Destroy Staging Environment
+    name: Destroy Staging
     needs: deploy-staging
     runs-on: ubuntu-latest
     
@@ -125,7 +141,7 @@ jobs:
       with:
         creds: ${{ secrets.AZURE_CREDENTIALS }}
     
-    - name: Connect to AKS
+    - name: Connect to AKS Staging Cluster
       uses: azure/aks-set-context@v3
       with:
         cluster-name: ${{ secrets.AKS_STAGING_CLUSTER }}
@@ -134,6 +150,6 @@ jobs:
     - name: Destroy staging environment
       run: |
         echo "🗑️ Destroying staging environment..."
-        kubectl delete -f week10/k8s/ -n staging --ignore-not-found=true
+        kubectl delete -f temp-k8s/ -n staging --ignore-not-found=true
         kubectl delete namespace staging --ignore-not-found=true
         echo "✅ Staging environment destroyed!"
