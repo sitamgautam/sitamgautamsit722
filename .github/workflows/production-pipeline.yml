@@ -27,24 +27,24 @@ jobs:
           resource-group: ${{ secrets.AKS_PRODUCTION_RESOURCE_GROUP }}
 
       - name: List K8s folder
-        run: ls -la WEEK10/k8s/  # ← UPPERCASE
+        run: ls -la k8s/  # ← FIXED: Direct k8s folder
 
       - name: Deploy Production Application
         run: |
-          echo "🚀 Deploying to production environment..."
-          kubectl apply -f WEEK10/k8s/configmaps.yaml
-          kubectl apply -f WEEK10/k8s/product-db.yaml
-          kubectl apply -f WEEK10/k8s/order-db.yaml
-          kubectl apply -f WEEK10/k8s/customer-db.yaml
-          kubectl apply -f WEEK10/k8s/product-service.yaml
-          kubectl apply -f WEEK10/k8s/order-service.yaml
-          kubectl apply -f WEEK10/k8s/customer-service.yaml
-          kubectl apply -f WEEK10/k8s/frontend.yaml
+          echo " Deploying to production environment..."
+          kubectl apply -f k8s/configmaps.yaml      # ← FIXED
+          kubectl apply -f k8s/product-db.yaml      # ← FIXED
+          kubectl apply -f k8s/order-db.yaml        # ← FIXED
+          kubectl apply -f k8s/customer-db.yaml     # ← FIXED
+          kubectl apply -f k8s/product-service.yaml # ← FIXED
+          kubectl apply -f k8s/order-service.yaml   # ← FIXED
+          kubectl apply -f k8s/customer-service.yaml # ← FIXED
+          kubectl apply -f k8s/frontend.yaml        # ← FIXED
           sleep 10
 
       - name: Wait for production services
         run: |
-          echo "⏳ Waiting for production services to be ready..."
+          echo "Waiting for production services to be ready..."
           kubectl wait --for=condition=ready pod -l app=product-service --timeout=600s
           kubectl wait --for=condition=ready pod -l app=order-service --timeout=600s
           kubectl wait --for=condition=ready pod -l app=customer-service --timeout=600s
@@ -52,6 +52,6 @@ jobs:
 
       - name: Verify production deployment
         run: |
-          echo "✅ Production deployment completed successfully!"
+          echo "Production deployment completed successfully!"
           kubectl get services
           kubectl get pods
