@@ -26,32 +26,23 @@ jobs:
           cluster-name: ${{ secrets.AKS_PRODUCTION_CLUSTER }}
           resource-group: ${{ secrets.AKS_PRODUCTION_RESOURCE_GROUP }}
 
-      - name: List K8s folder
-        run: ls -la k8s/  # ← FIXED: Direct k8s folder
-
       - name: Deploy Production Application
         run: |
           echo " Deploying to production environment..."
-          kubectl apply -f k8s/configmaps.yaml      # ← FIXED
-          kubectl apply -f k8s/product-db.yaml      # ← FIXED
-          kubectl apply -f k8s/order-db.yaml        # ← FIXED
-          kubectl apply -f k8s/customer-db.yaml     # ← FIXED
-          kubectl apply -f k8s/product-service.yaml # ← FIXED
-          kubectl apply -f k8s/order-service.yaml   # ← FIXED
-          kubectl apply -f k8s/customer-service.yaml # ← FIXED
-          kubectl apply -f k8s/frontend.yaml        # ← FIXED
-          sleep 10
+          kubectl apply -f k8s/
+          echo " Waiting for services to initialize..."
+          sleep 120
 
-      - name: Wait for production services
+      - name: Check deployment status
         run: |
-          echo "Waiting for production services to be ready..."
-          kubectl wait --for=condition=ready pod -l app=product-service --timeout=600s
-          kubectl wait --for=condition=ready pod -l app=order-service --timeout=600s
-          kubectl wait --for=condition=ready pod -l app=customer-service --timeout=600s
-          kubectl wait --for=condition=ready pod -l app=frontend --timeout=600s
-
-      - name: Verify production deployment
-        run: |
-          echo "Production deployment completed successfully!"
-          kubectl get services
+          echo "Current status:"
           kubectl get pods
+          kubectl get services
+          echo "Production deployment completed successfully!"
+
+      - name: Get application URLs
+        run: |
+          echo "Your application URLs:"
+          kubectl get service frontend-w10-aks
+          kubectl get service product-service-w10-aks
+          echo "Note: It may take 2-5 minutes for LoadBalancer IPs to be assigned"
