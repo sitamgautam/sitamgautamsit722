@@ -75,7 +75,8 @@ jobs:
           else
             echo "🏗️ Building ${{ matrix.service }} image..."
             docker build -t ${{ secrets.ACR_NAME }}.azurecr.io/week10_${{ matrix.service }}:${{ github.sha }} \
-              -f ./backend/${{ matrix.service }}/Dockerfile ./backend/${{ matrix.service }}
+              -f ./backend/${{ matrix.service }}/Dockerfile ./backend/${{ matrix.service}}
+          fi
 
       - name: Push Docker image
         run: |
