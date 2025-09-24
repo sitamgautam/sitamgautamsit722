@@ -1,0 +1,140 @@
+version: "3.9"
+
+services:
+  # --- Databases ---
+  product_db:
+    image: postgres:15-alpine
+    container_name: product_db_container
+    environment:
+      POSTGRES_DB: products
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5432:5432"
+    volumes:
+      - product_db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d products"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  order_db:
+    image: postgres:15-alpine
+    container_name: order_db_container
+    environment:
+      POSTGRES_DB: orders
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5433:5432"
+    volumes:
+      - order_db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d orders"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  customer_db:
+    image: postgres:15-alpine
+    container_name: customer_db_container
+    environment:
+      POSTGRES_DB: customers
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5434:5432"
+    volumes:
+      - customer_db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d customers"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # --- Services ---
+  product_service:
+    build:
+      context: ./backend/product_service
+      dockerfile: Dockerfile
+    image: task10_2d_product_service:dev
+    container_name: product_service
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      POSTGRES_HOST: product_db
+      POSTGRES_DB: products
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      # Optional Azure blob settings (leave empty if not using uploads locally)
+      AZURE_STORAGE_ACCOUNT_NAME: ""
+      AZURE_STORAGE_ACCOUNT_KEY: ""
+      AZURE_STORAGE_CONTAINER_NAME: ""
+      AZURE_SAS_TOKEN_EXPIRY_HOURS: 24
+    depends_on:
+      product_db:
+        condition: service_healthy
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000
+
+  order_service:
+    build:
+      context: ./backend/order_service
+      dockerfile: Dockerfile
+    image: task10_2d_order_service:dev
+    container_name: order_service
+    restart: unless-stopped
+    ports:
+      - "8001:8000"
+    environment:
+      POSTGRES_HOST: order_db
+      POSTGRES_DB: orders
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      PRODUCT_SERVICE_URL: http://product_service:8000
+    depends_on:
+      order_db:
+        condition: service_healthy
+      product_service:
+        condition: service_started
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000
+
+  customer_service:
+    build:
+      context: ./backend/customer_service
+      dockerfile: Dockerfile
+    image: task10_2d_customer_service:dev
+    container_name: customer_service
+    restart: unless-stopped
+    ports:
+      - "8002:8000"
+    environment:
+      POSTGRES_HOST: customer_db
+      POSTGRES_DB: customers
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    depends_on:
+      customer_db:
+        condition: service_healthy
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    image: task10_2d_frontend:dev
+    container_name: frontend
+    restart: unless-stopped
+    ports:
+      - "3001:80"
+    depends_on:
+      product_service:
+        condition: service_started
+      order_service:
+        condition: service_started
+      customer_service:
+        condition: service_started
+volumes:
+  product_db_data:
+  order_db_data:
+  customer_db_data:

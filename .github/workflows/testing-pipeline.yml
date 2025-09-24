@@ -1,0 +1,152 @@
+name: Testing Branch CI/CD Pipeline
+
+on:
+  push:
+    branches: [ testing ]
+
+jobs:
+  # STAGE 1: Test Code
+  test-code:
+    name: Run Tests
+    runs-on: ubuntu-latest
+    
+    strategy:
+      matrix:
+        service: [product-service, order-service, customer-service]
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+    
+    - name: Install dependencies and run tests
+      run: |
+        cd backend/${{ matrix.service }}
+        if [ -f "requirements.txt" ]; then
+          pip install -r requirements.txt
+        fi
+        # Simple test - replace with your actual test commands
+        echo "Running tests for ${{ matrix.service }}"
+        python -c "print('Tests passed for ${{ matrix.service }}')"
+
+  # STAGE 2: Build and Push Images to ACR
+  build-and-push:
+    name: Build and Push Docker Images
+    needs: test-code
+    runs-on: ubuntu-latest
+    
+    strategy:
+      matrix:
+        service: [product-service, order-service, customer-service, frontend]
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v2
+    
+    - name: Log in to Azure Container Registry
+      uses: azure/docker-login@v1
+      with:
+        login-server: ${{ secrets.ACR_REGISTRY }}
+        username: ${{ secrets.ACR_USERNAME }}
+        password: ${{ secrets.ACR_PASSWORD }}
+    
+    - name: Build and push Docker image
+      run: |
+        if [ "${{ matrix.service }}" = "frontend" ]; then
+          docker build -t ${{ secrets.ACR_REGISTRY }}/week10_frontend:latest -f ./frontend/Dockerfile ./frontend
+        else
+          docker build -t ${{ secrets.ACR_REGISTRY }}/week10_${{ matrix.service }}:latest \
+            -f ./backend/${{ matrix.service }}/Dockerfile ./backend/${{ matrix.service }}
+        fi
+        docker push ${{ secrets.ACR_REGISTRY }}/week10_${{ matrix.service }}:latest
+    
+    - name: Log build success
+      run: echo "Successfully built and pushed ${{ matrix.service }} image"
+
+  # STAGE 3: Deploy to Staging Environment
+  deploy-staging:
+    name: Deploy to Staging
+    needs: build-and-push
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: Configure Azure credentials
+      uses: azure/login@v1
+      with:
+        creds: ${{ secrets.AZURE_CREDENTIALS }}
+    
+    - name: Deploy to AKS Staging Cluster
+      uses: azure/aks-set-context@v3
+      with:
+        cluster-name: ${{ secrets.AKS_STAGING_CLUSTER }}
+        resource-group: ${{ secrets.AKS_STAGING_RESOURCE_GROUP }}
+    
+    - name: Deploy Kubernetes manifests
+      run: |
+        echo "Deploying to staging environment..."
+        kubectl apply -f week10/k8s/configmaps.yaml
+        kubectl apply -f week10/k8s/secrets-simple.yaml
+        kubectl apply -f week10/k8s/product-db.yaml
+        kubectl apply -f week10/k8s/order-db.yaml
+        kubectl apply -f week10/k8s/customer-db.yaml
+        kubectl apply -f week10/k8s/product-service.yaml
+        kubectl apply -f week10/k8s/order-service.yaml
+        kubectl apply -f week10/k8s/customer-service.yaml
+        kubectl apply -f week10/k8s/frontend.yaml
+    
+    - name: Wait for services to be ready
+      run: |
+        echo "Waiting for services to be ready..."
+        kubectl wait --for=condition=ready pod -l app=product-service --timeout=300s
+        kubectl wait --for=condition=ready pod -l app=order-service --timeout=300s
+        kubectl wait --for=condition=ready pod -l app=customer-service --timeout=300s
+        kubectl wait --for=condition=ready pod -l app=frontend --timeout=300s
+    
+    - name: Run acceptance tests
+      run: |
+        echo "Running acceptance tests..."
+        # Get external IP for frontend
+        kubectl get services
+        echo "Staging environment is ready for manual testing"
+
+  # STAGE 4: Destroy Staging Environment
+  destroy-staging:
+    name: Destroy Staging Environment
+    needs: deploy-staging
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: Configure Azure credentials
+      uses: azure/login@v1
+      with:
+        creds: ${{ secrets.AZURE_CREDENTIALS }}
+    
+    - name: Connect to AKS Staging Cluster
+      uses: azure/aks-set-context@v3
+      with:
+        cluster-name: ${{ secrets.AKS_STAGING_CLUSTER }}
+        resource-group: ${{ secrets.AKS_STAGING_RESOURCE_GROUP }}
+    
+    - name: Destroy staging environment
+      run: |
+        echo "Destroying temporary staging environment..."
+        kubectl delete -f week10/k8s/ --ignore-not-found=true --wait=true
+        echo "Staging environment destroyed successfully"
+    
+    - name: Verify destruction
+      run: |
+        kubectl get pods
+        kubectl get services

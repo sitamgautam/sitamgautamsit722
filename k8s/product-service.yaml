@@ -1,0 +1,50 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: product-service-w10-aks
+  labels:
+    app: product-service
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: product-service
+  template:
+    metadata:
+      labels:
+        app: product-service
+    spec:
+      containers:
+      - name: product-service-container
+        image: sit722224784845acr.azurecr.io/week10_product_service:latest
+        imagePullPolicy: Always
+        ports:
+        - containerPort: 8000
+        env:
+        - name: POSTGRES_HOST
+          value: product-db-service-w10-aks
+        - name: POSTGRES_DB
+          valueFrom:
+            configMapKeyRef:
+              name: ecomm-config-w10-aks
+              key: PRODUCTS_DB_NAME
+        - name: POSTGRES_USER
+          value: postgres  # ← Direct value
+        - name: POSTGRES_PASSWORD
+          value: postgres  # ← Direct value
+        # Remove Azure storage and RabbitMQ entirely
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: product-service-w10-aks
+  labels:
+    app: product-service
+spec:
+  selector:
+    app: product-service
+  ports:
+    - protocol: TCP
+      port: 8000
+      targetPort: 8000
+  type: LoadBalancer
